@@ -1,0 +1,9 @@
+{
+    "path" : "~/projects/drivendata/dengue",
+    "sortOrder" : [
+        {
+            "ascending" : true,
+            "columnIndex" : 2
+        }
+    ]
+}
