@@ -1,24 +1,27 @@
 ---
 title: "Dengue EDA"
-output: html_notebook
+output:
+  html_document:
+    df_print: paged
 ---
 
 This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
 
 Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
 
-```{r, echo = False}
+```{r, echo = FALSE}
 library(dplyr)
 library(ggplot2)
 library(purrr)
 library(data.table)
 ```
 ```{r}
-
+response <- fread('./input/dengue_labels_train.csv')
 dengue <- fread('./input/dengue_features_train.csv')
 str(dengue)
 
 ```
+
 ```{r}
 
 cor_table <- select(dengue, 5:ncol(dengue)) %>% 
@@ -28,6 +31,29 @@ cor_table <- select(dengue, 5:ncol(dengue)) %>%
 cor_table[table(apply(cor_table, 2, function(x) x >.5))]
 
 apply(cor_table, 2, function(x) x >.5)
+```
+```{r}
+
+response$city <- response$city %>%
+  as.factor()
+```
+
+```{r}
+library(ggthemes)
+ggplot(response, aes(x = total_cases)) +
+  geom_histogram(aes(y=..count../sum(..count..), fill = city, color = 'black'), bins = 60) +
+  guides(color = FALSE) +
+  ylab('proportion') +
+  theme_hc()
+  
+select(response, city, total_cases) %>%
+  table() %>%
+  prop.table() %>% 
+  as.data.frame() %>%
+  ggplot(aes(x = total_cases, y = Freq)) +
+    geom_bar(aes(fill = city), stat = 'identity') +
+    guides(color = FALSE)
+
 ```
 
 Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
