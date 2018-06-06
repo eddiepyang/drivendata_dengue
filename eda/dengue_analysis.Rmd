@@ -8,16 +8,32 @@ output:
 This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
 
 Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+# Loading packages
 
 ```{r, echo = FALSE}
+# data mainpulation
 library(dplyr)
-library(ggplot2)
 library(purrr)
 library(data.table)
+library(zoo)
+library(lubridate)
+
+# charts
+library(ggthemes)
+library(ggplot2)
+
+# ts
+library(zoo)
+library(lubridate)
+
+
+
 ```
+
+
 ```{r}
-response <- fread('./input/dengue_labels_train.csv')
-dengue <- fread('./input/dengue_features_train.csv')
+response <- fread('../input/dengue_labels_train.csv')
+dengue <- fread('../input/dengue_features_train.csv')
 str(dengue)
 
 ```
@@ -27,32 +43,135 @@ str(dengue)
 cor_table <- select(dengue, 5:ncol(dengue)) %>% 
   cor(use = 'pairwise.complete.obs')
   
-?apply
-cor_table[table(apply(cor_table, 2, function(x) x >.5))]
+# ?apply
+# cor_table[table(apply(cor_table, 2, function(x) x >.5))]
 
-apply(cor_table, 2, function(x) x >.5)
-```
-```{r}
+#apply(cor_table, 2, function(x) x >.5)
 
-response$city <- response$city %>%
-  as.factor()
 ```
 
 ```{r}
-library(ggthemes)
-ggplot(response, aes(x = total_cases)) +
-  geom_histogram(aes(y=..count../sum(..count..), fill = city, color = 'black'), bins = 60) +
+
+#glm.fit(dengue[,5:ncol(dengue)], response$total_cases, family = poisson())
+
+combined_data <- left_join(dengue, response) 
+combined_data2 <- map_df(combined_data, na.locf)
+combined_data2$week_start_date <- ymd(combined_data2$week_start_date)
+
+
+colSums(is.na(combined_data))
+
+summary(combined_data)
+dim(response)
+dim(dengue)
+
+```
+
+
+```{r}
+
+filter(combined_data2, city == 'iq') %>% 
+  ggplot(aes(x = week_start_date, y = total_cases)) + 
+  geom_line()
+```
+
+```{r}
+
+stacked_hist <- function(data, ind_var, factor_var) 
+{
+ggplot(data, aes_string(x = ind_var)) +
+  geom_histogram(aes_string(y= "..count../sum(..count..)", fill = factor_var, color = "'black'"), bins = 60) +
+  # geom_histogram(aes_string(fill = factor_var, color = "'black'"), bins = 60) +
   guides(color = FALSE) +
   ylab('proportion') +
   theme_hc()
-  
-select(response, city, total_cases) %>%
-  table() %>%
-  prop.table() %>% 
-  as.data.frame() %>%
-  ggplot(aes(x = total_cases, y = Freq)) +
-    geom_bar(aes(fill = city), stat = 'identity') +
-    guides(color = FALSE)
+}
+
+stacked_hist(response, "total_cases", "response$city")
+
+stacked_hist(dengue, "precipitation_amt_mm", "dengue$city")
+```
+
+Skewed right, and cases are integers so a poisson or negative binomial may be appropriate. In poisson the mean == variance, we can check that for these distributions.
+
+```{r}
+group_by(response, city) %>%
+  summarise(mean(total_cases), var(total_cases))
+
+library(fitdistrplus)
+
+filter(response, city == 'sj') %>%
+  .$total_cases %>% 
+  as.numeric() %>%
+  descdist(discrete = TRUE)
+```
+
+
+## Summary stats by city
+```{r}
+
+group_by(response, city, year) %>%
+  summarize(sum(total_cases), mean(total_cases), n(), max(total_cases), min(total_cases))
+
+```
+
+
+
+```{r}
+# medians <- apply(combined_data, 2, function(x) median(as.numeric(x), na.rm = TRUE))
+# 
+# replace_na <- function(vect, median) {
+#   ifelse(is.na(vect), median, vect)
+# }
+# 
+# replace_na(c(1,2,3,NA), 2)
+# 
+# for (item in medians) {
+#   if(!is.na(item)) {
+#     print(item)
+#   }
+# }
+
+
+# combined_data2 <- na.aggregate(combined_data, by = 'year', FUN = function(x) median(x, na.rm = TRUE))
+# 
+# combined_data2 <- apply(combined_data2[,5:ncol(combined_data2)], 2, as.numeric) %>% 
+#   as.data.frame() %>%
+#   cbind(combined_data2[,1:4], .)
+
+# separate cities, otherwise indices are not unique
+# spread(combined_data, city, total_cases) %>% 
+#   zoo(., order.by = .$week_start_date) %>% 
+#   na.aggregate(format, "%Y") %>% 
+#   is.na() %>% 
+#   colSums()
+
+filter(combined_data, city == 'iq') %>%
+  dplyr::select(week_start_date) %>% dim()
+
+```
+
+```{r}
+
+# Baseline model for analysis, no data splitting done
+nb_1 <- glm.nb(total_cases ~ ., combined_data2)
+
+summary(nb_1)
+
+# glmnet
+
+library(glmnet)
+
+# returns lambda value for lowest cv mse
+
+combined_data2$city <- combined_data2$city %>%
+  as.factor()
+
+cv_elas1 <- cv.glmnet(dplyr::select(combined_data2, -total_cases) %>% data.matrix(), 
+                dplyr::select(combined_data2, total_cases)[,1] %>% unlist%>% as.numeric(), family = 'poisson', 
+                alpha = .5)
+summary(cv_elas1)
+
 
 ```
 
