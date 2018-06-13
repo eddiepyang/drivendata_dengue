@@ -11,6 +11,7 @@ Try executing this chunk by clicking the *Run* button within the chunk or by pla
 # Loading packages
 
 ```{r, echo = FALSE}
+
 # data mainpulation
 library(dplyr)
 library(purrr)
@@ -25,7 +26,7 @@ library(ggplot2)
 # ts
 library(zoo)
 library(lubridate)
-
+library(forecast)
 
 
 ```
@@ -42,23 +43,29 @@ str(dengue)
 
 cor_table <- select(dengue, 5:ncol(dengue)) %>% 
   cor(use = 'pairwise.complete.obs')
-  
+
+corrplot::corrplot(cor_table)  
 # ?apply
 # cor_table[table(apply(cor_table, 2, function(x) x >.5))]
 
 #apply(cor_table, 2, function(x) x >.5)
 
+
 ```
+
+## Combining independent and dependent
 
 ```{r}
 
 #glm.fit(dengue[,5:ncol(dengue)], response$total_cases, family = poisson())
 
 combined_data <- left_join(dengue, response) 
+
+# fills na values
 combined_data2 <- map_df(combined_data, na.locf)
 combined_data2$week_start_date <- ymd(combined_data2$week_start_date)
 
-
+# check
 colSums(is.na(combined_data))
 
 summary(combined_data)
@@ -70,26 +77,52 @@ dim(dengue)
 
 ```{r}
 
-filter(combined_data2, city == 'iq') %>% 
-  ggplot(aes(x = week_start_date, y = total_cases)) + 
+ 
+  ggplot(combined_data2, aes(x = week_start_date, y = total_cases, color = city)) + 
   geom_line()
 ```
 
+# ARIMA fit 
+
 ```{r}
 
-stacked_hist <- function(data, ind_var, factor_var) 
+sj_series <- ts(combined_data2[combined_data2$city == 'sj',]$total_cases, 
+                start = c(1990, 18), frequency = 52)
+
+sj_fit <- auto.arima(sj_series)
+summary(sj_fit)
+checkresiduals(sj_fit)
+
+# test forecasts, arma is p, q, P, Q, M, d, D
+
+sj_fit$arma
+cv_forecast <- function (x, h) forecast(Arima(x, order = c(1,1,1)), h = 1)
+error_vector <- tsCV(sj_series, cv_forecast, h = 1)
+```
+
+## Inspecting differences by city
+
+```{r}
+
+stacked_hist <- function(data, ind_var, factor_var, filter_dates = TRUE)
 {
-ggplot(data, aes_string(x = ind_var)) +
-  geom_histogram(aes_string(y= "..count../sum(..count..)", fill = factor_var, color = "'black'"), bins = 60) +
-  # geom_histogram(aes_string(fill = factor_var, color = "'black'"), bins = 60) +
-  guides(color = FALSE) +
-  ylab('proportion') +
-  theme_hc()
+  if (filter_dates == TRUE) 
+    {
+    data = filter(data, week_start_date >= '2000-01-01', week_start_date <= '2008-12-30')
+    ggplot(data, aes_string(x = ind_var)) +
+    geom_histogram(aes_string(y= "..count../sum(..count..)", fill = factor_var, color = "'black'"), bins =     60) +
+    # geom_histogram(aes_string(fill = factor_var, color = "'black'"), bins = 60) +
+    guides(color = FALSE) +
+    ylab('proportion') +
+    theme_hc()
+  }
 }
 
-stacked_hist(response, "total_cases", "response$city")
+stacked_hist(combined_data2, "total_cases", "city")
 
-stacked_hist(dengue, "precipitation_amt_mm", "dengue$city")
+stacked_hist(dengue, "precipitation_amt_mm", "city")
+
+stacked_hist(dengue, "station_avg_temp_c", "city")
 ```
 
 Skewed right, and cases are integers so a poisson or negative binomial may be appropriate. In poisson the mean == variance, we can check that for these distributions.
@@ -108,6 +141,7 @@ filter(response, city == 'sj') %>%
 
 
 ## Summary stats by city
+
 ```{r}
 
 group_by(response, city, year) %>%
@@ -151,6 +185,8 @@ filter(combined_data, city == 'iq') %>%
 
 ```
 
+## Negative binomial glm 
+
 ```{r}
 
 # Baseline model for analysis, no data splitting done
@@ -175,8 +211,17 @@ summary(cv_elas1)
 
 ```
 
-Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+## Caret
+```{r}
+library(caret)
 
-When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+combined_data_dummied <- dummyVars(total_cases~., data = combined_data2)
+head(predict(combined_data_dummied, newdata = combined_data2))
 
-The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+# find linear combos
+
+remove_cols <- findLinearCombos(data.matrix(combined_data2))$remove
+combined_data2 <- combined_data2[-remove_cols]
+combined_processed <- preProcess(combined_data2, method = c('center', 'scale'))
+
+```
