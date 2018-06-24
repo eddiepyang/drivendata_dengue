@@ -61,9 +61,6 @@ corrplot::corrplot(cor_table)
 
 combined_data <- left_join(dengue, response) 
 
-# fills na values
-combined_data2 <- map_df(combined_data, na.locf)
-combined_data2$week_start_date <- ymd(combined_data2$week_start_date)
 
 # check
 colSums(is.na(combined_data))
@@ -208,20 +205,81 @@ cv_elas1 <- cv.glmnet(dplyr::select(combined_data2, -total_cases) %>% data.matri
                 alpha = .5)
 summary(cv_elas1)
 
+sapply(combined_data, class) %>% sapply(function(x) if (x=='integer') {return(x)} else {return()} )
 
+# could have used map_if(df, condition, function)
+get_integer_cols <- function(df) {
+  for (i in 1:ncol(df)) {
+    if (is.integer(combined_data[,i])) {
+      print(colnames(combined_data)[i])
+      df[,i] <- as.numeric(df[,i])
+    }
+    else {
+      next
+    }
+  }
+  return(df)
+}
+
+combined_data <- get_integer_cols(combined_data)
 ```
 
 ## Caret
 ```{r}
+
 library(caret)
+set.seed(42)
 
-combined_data_dummied <- dummyVars(total_cases~., data = combined_data2)
-head(predict(combined_data_dummied, newdata = combined_data2))
+# fills na values
+combined_data2 <- map_df(combined_data, na.locf)
+combined_data2$week_start_date <- ymd(combined_data2$week_start_date)
+combined_data2$city <- factor(combined_data2$city)
 
+# split data
+idx <- createDataPartition(combined_data2$total_cases, list = FALSE, p = .8) 
+train_data <- combined_data2[idx,]
+test_data <- combined_data2[-idx,]
+
+train_y <- train_data$total_cases 
+test_y <- test_data$total_cases
+
+# dummy the city column here
+dummy_model <- dummyVars(total_cases~., data = train_data)
+train_data <- predict(dummy_model, newdata = train_data)
+test_data <- predict(dummy_model, newdata = test_data)
 # find linear combos
+# 
+# remove_cols <- findLinearCombos(data.matrix(combined_data2))$remove
+# combined_data2 <- combined_data2[-remove_cols]
 
-remove_cols <- findLinearCombos(data.matrix(combined_data2))$remove
-combined_data2 <- combined_data2[-remove_cols]
-combined_processed <- preProcess(combined_data2, method = c('center', 'scale'))
+# # check features
+# featurePlot(x = train_data[,20:24], 
+#             y = train_data$total_cases, 
+#             plot = "pairs",
+#             strip=strip.custom(par.strip.text=list(cex=.7)),
+#             scales = list(x = list(relation="free"), 
+#                           y = list(relation="free"))
+#             )
+
+
+# preprocess
+preprocess_model <- preProcess(train_data, method = c('center', 'scale'))
+train_data <- predict(preprocess_model, newdata = train_data)
+test_data <- predict(preprocess_model, newdata = test_data)
+
+# training
+glm_model <- train(x = train_data, y = train_y, method = 'glmnet', family = 'poisson')
+tree_model <- train(x = train_data, y = train_y, method = 'xgbTree')
+
+
+# validation
+predictions <- predict(glm_model, newdata = test_data)
+postResample(predictions, test_y)
+mean(abs(predictions - test_y))
+
+predictions <- predict(tree_model, newdata = test_data)
+postResample(predictions, test_y)
+mean(abs(predictions - test_y))
+
 
 ```
