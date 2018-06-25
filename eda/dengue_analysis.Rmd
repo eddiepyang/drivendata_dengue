@@ -5,9 +5,9 @@ output:
     df_print: paged
 ---
 
-This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code.
 
-Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*.
 # Loading packages
 
 ```{r, echo = FALSE}
@@ -41,10 +41,10 @@ str(dengue)
 
 ```{r}
 
-cor_table <- select(dengue, 5:ncol(dengue)) %>% 
+cor_table <- select(dengue, 5:ncol(dengue)) %>%
   cor(use = 'pairwise.complete.obs')
 
-corrplot::corrplot(cor_table)  
+corrplot::corrplot(cor_table)
 # ?apply
 # cor_table[table(apply(cor_table, 2, function(x) x >.5))]
 
@@ -59,11 +59,8 @@ corrplot::corrplot(cor_table)
 
 #glm.fit(dengue[,5:ncol(dengue)], response$total_cases, family = poisson())
 
-combined_data <- left_join(dengue, response) 
+combined_data <- left_join(dengue, response)
 
-# fills na values
-combined_data2 <- map_df(combined_data, na.locf)
-combined_data2$week_start_date <- ymd(combined_data2$week_start_date)
 
 # check
 colSums(is.na(combined_data))
@@ -77,16 +74,16 @@ dim(dengue)
 
 ```{r}
 
- 
-  ggplot(combined_data2, aes(x = week_start_date, y = total_cases, color = city)) + 
+
+  ggplot(combined_data2, aes(x = week_start_date, y = total_cases, color = city)) +
   geom_line()
 ```
 
-# ARIMA fit 
+# ARIMA fit
 
 ```{r}
 
-sj_series <- ts(combined_data2[combined_data2$city == 'sj',]$total_cases, 
+sj_series <- ts(combined_data2[combined_data2$city == 'sj',]$total_cases,
                 start = c(1990, 18), frequency = 52)
 
 sj_fit <- auto.arima(sj_series)
@@ -106,7 +103,7 @@ error_vector <- tsCV(sj_series, cv_forecast, h = 1)
 
 stacked_hist <- function(data, ind_var, factor_var, filter_dates = TRUE)
 {
-  if (filter_dates == TRUE) 
+  if (filter_dates == TRUE)
     {
     data = filter(data, week_start_date >= '2000-01-01', week_start_date <= '2008-12-30')
     ggplot(data, aes_string(x = ind_var)) +
@@ -134,7 +131,7 @@ group_by(response, city) %>%
 library(fitdistrplus)
 
 filter(response, city == 'sj') %>%
-  .$total_cases %>% 
+  .$total_cases %>%
   as.numeric() %>%
   descdist(discrete = TRUE)
 ```
@@ -153,13 +150,13 @@ group_by(response, city, year) %>%
 
 ```{r}
 # medians <- apply(combined_data, 2, function(x) median(as.numeric(x), na.rm = TRUE))
-# 
+#
 # replace_na <- function(vect, median) {
 #   ifelse(is.na(vect), median, vect)
 # }
-# 
+#
 # replace_na(c(1,2,3,NA), 2)
-# 
+#
 # for (item in medians) {
 #   if(!is.na(item)) {
 #     print(item)
@@ -168,16 +165,16 @@ group_by(response, city, year) %>%
 
 
 # combined_data2 <- na.aggregate(combined_data, by = 'year', FUN = function(x) median(x, na.rm = TRUE))
-# 
-# combined_data2 <- apply(combined_data2[,5:ncol(combined_data2)], 2, as.numeric) %>% 
+#
+# combined_data2 <- apply(combined_data2[,5:ncol(combined_data2)], 2, as.numeric) %>%
 #   as.data.frame() %>%
 #   cbind(combined_data2[,1:4], .)
 
 # separate cities, otherwise indices are not unique
-# spread(combined_data, city, total_cases) %>% 
-#   zoo(., order.by = .$week_start_date) %>% 
-#   na.aggregate(format, "%Y") %>% 
-#   is.na() %>% 
+# spread(combined_data, city, total_cases) %>%
+#   zoo(., order.by = .$week_start_date) %>%
+#   na.aggregate(format, "%Y") %>%
+#   is.na() %>%
 #   colSums()
 
 filter(combined_data, city == 'iq') %>%
@@ -185,7 +182,7 @@ filter(combined_data, city == 'iq') %>%
 
 ```
 
-## Negative binomial glm 
+## Negative binomial glm
 
 ```{r}
 
@@ -203,12 +200,28 @@ library(glmnet)
 combined_data2$city <- combined_data2$city %>%
   as.factor()
 
-cv_elas1 <- cv.glmnet(dplyr::select(combined_data2, -total_cases) %>% data.matrix(), 
-                dplyr::select(combined_data2, total_cases)[,1] %>% unlist%>% as.numeric(), family = 'poisson', 
+cv_elas1 <- cv.glmnet(dplyr::select(combined_data2, -total_cases) %>% data.matrix(),
+                dplyr::select(combined_data2, total_cases)[,1] %>% unlist%>% as.numeric(), family = 'poisson',
                 alpha = .5)
 summary(cv_elas1)
 
+sapply(combined_data, class) %>% sapply(function(x) if (x=='integer') {return(x)} else {return()} )
 
+# could have used map_if(df, condition, function)
+get_integer_cols <- function(df) {
+  for (i in 1:ncol(df)) {
+    if (is.integer(combined_data[,i])) {
+      print(colnames(combined_data)[i])
+      df[,i] <- as.numeric(df[,i])
+    }
+    else {
+      next
+    }
+  }
+  return(df)
+}
+
+combined_data <- get_integer_cols(combined_data)
 ```
 
 ## Caret
@@ -216,23 +229,58 @@ summary(cv_elas1)
 ```{r}
 
 library(caret)
+set.seed(42)
 
-combined_data_dummied <- dummyVars(total_cases~., data = combined_data2)
-head(predict(combined_data_dummied, newdata = combined_data2))
+# fills na values
+combined_data2 <- map_df(combined_data, na.locf)
+combined_data2$week_start_date <- ymd(combined_data2$week_start_date)
+combined_data2$city <- factor(combined_data2$city)
 
-# find linear combos to avoid multicoll
+# split data
+idx <- createDataPartition(combined_data2$total_cases, list = FALSE, p = .8)
+train_data <- combined_data2[idx,]
+test_data <- combined_data2[-idx,]
 
-remove_cols <- findLinearCombos(data.matrix(combined_data2))$remove
+train_y <- train_data$total_cases 
+test_y <- test_data$total_cases
 
-combined_data2 <- combined_data2[-remove_cols]
-idx <- createDataPartition(y = combined_data2$total_cases, p = .6, list = FALSE)
-train <- combined_data2[idx,]
-test <- combined_data2[-idx,]
+# dummy the city column here
+dummy_model <- dummyVars(total_cases~., data = train_data)
+train_data <- predict(dummy_model, newdata = train_data)
+test_data <- predict(dummy_model, newdata = test_data)
+# find linear combos
+#
+# remove_cols <- findLinearCombos(data.matrix(combined_data2))$remove
+# combined_data2 <- combined_data2[-remove_cols]
+
+# # check features
+# featurePlot(x = train_data[,20:24],
+#             y = train_data$total_cases,
+#             plot = "pairs",
+#             strip=strip.custom(par.strip.text=list(cex=.7)),
+#             scales = list(x = list(relation="free"),
+#                           y = list(relation="free"))
+#             )
 
 
-combined_processed <- preProcess(combined_data2, method = c('pca'))
+# preprocess
+preprocess_model <- preProcess(train_data, method = c('center', 'scale'))
+train_data <- predict(preprocess_model, newdata = train_data)
+test_data <- predict(preprocess_model, newdata = test_data)
 
-combined_processed
+# training
+glm_model <- train(x = train_data, y = train_y, method = 'glmnet', family = 'poisson')
+tree_model <- train(x = train_data, y = train_y, method = 'xgbTree')
+
+
+# validation
+predictions <- predict(glm_model, newdata = test_data)
+postResample(predictions, test_y)
+mean(abs(predictions - test_y))
+
+predictions <- predict(tree_model, newdata = test_data)
+postResample(predictions, test_y)
+mean(abs(predictions - test_y))
 
 
 ```
