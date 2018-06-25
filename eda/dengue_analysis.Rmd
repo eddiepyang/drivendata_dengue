@@ -212,16 +212,27 @@ summary(cv_elas1)
 ```
 
 ## Caret
+
 ```{r}
+
 library(caret)
 
 combined_data_dummied <- dummyVars(total_cases~., data = combined_data2)
 head(predict(combined_data_dummied, newdata = combined_data2))
 
-# find linear combos
+# find linear combos to avoid multicoll
 
 remove_cols <- findLinearCombos(data.matrix(combined_data2))$remove
+
 combined_data2 <- combined_data2[-remove_cols]
-combined_processed <- preProcess(combined_data2, method = c('center', 'scale'))
+idx <- createDataPartition(y = combined_data2$total_cases, p = .6, list = FALSE)
+train <- combined_data2[idx,]
+test <- combined_data2[-idx,]
+
+
+combined_processed <- preProcess(combined_data2, method = c('pca'))
+
+combined_processed
+
 
 ```
