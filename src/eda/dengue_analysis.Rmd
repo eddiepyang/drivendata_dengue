@@ -60,6 +60,7 @@ corrplot::corrplot(cor_table)
 #glm.fit(dengue[,5:ncol(dengue)], response$total_cases, family = poisson())
 
 combined_data <- left_join(dengue, response)
+combined_data2 <- map_df(combined_data, na.locf)
 
 
 # check
@@ -75,7 +76,7 @@ dim(dengue)
 ```{r}
 
 
-  ggplot(combined_data2, aes(x = week_start_date, y = total_cases, color = city)) +
+ggplot(combined_data2, aes(x = week_start_date, y = total_cases, color = city)) +
   geom_line()
 ```
 
@@ -85,6 +86,7 @@ dim(dengue)
 
 sj_series <- ts(combined_data2[combined_data2$city == 'sj',]$total_cases,
                 start = c(1990, 18), frequency = 52)
+
 
 sj_fit <- auto.arima(sj_series)
 summary(sj_fit)
@@ -185,11 +187,13 @@ filter(combined_data, city == 'iq') %>%
 ## Negative binomial glm
 
 ```{r}
-
-# Baseline model for analysis, no data splitting done
-nb_1 <- glm.nb(total_cases ~ ., combined_data2)
-
-summary(nb_1)
+#lme4::lmer(total_cases ~ 1 + (1|city) + station_precip_mm, combined_data2) %>% summary()
+# 
+# library(MASS)
+# # Baseline model for analysis, no data splitting done
+# nb_1 <- glm.nb(total_cases ~ ., combined_data2)
+# 
+# summary(nb_1)
 
 # glmnet
 
@@ -200,9 +204,11 @@ library(glmnet)
 combined_data2$city <- combined_data2$city %>%
   as.factor()
 
-cv_elas1 <- cv.glmnet(dplyr::select(combined_data2, -total_cases) %>% data.matrix(),
-                dplyr::select(combined_data2, total_cases)[,1] %>% unlist%>% as.numeric(), family = 'poisson',
+cv_elas1 <- cv.glmnet( dplyr::select(combined_data2, -total_cases, -week_start_date ) %>% data.matrix(),
+                dplyr::select(combined_data2, total_cases)[,1] %>% unlist () %>% as.numeric(), 
+                family = 'poisson',
                 alpha = .5)
+
 summary(cv_elas1)
 
 sapply(combined_data, class) %>% sapply(function(x) if (x=='integer') {return(x)} else {return()} )
