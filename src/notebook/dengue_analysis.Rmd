@@ -1,0 +1,329 @@
+---
+title: "Dengue EDA"
+output:
+  html_document:
+    df_print: paged
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code.
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*.
+# Loading packages
+
+```{r, echo = FALSE}
+
+# data mainpulation
+library(dplyr)
+library(purrr)
+library(data.table)
+library(zoo)
+library(lubridate)
+
+# charts
+library(ggthemes)
+library(ggplot2)
+
+# ts
+library(zoo)
+library(lubridate)
+library(forecast)
+
+
+```
+
+
+```{r}
+response <- fread('../input/dengue_labels_train.csv')
+dengue <- fread('../input/dengue_features_train.csv')
+test <- fread('../input/dengue_features_test.csv')
+```
+
+```{r}
+
+str(dengue)
+str(test)
+
+summary(dengue$year)
+summary(test$year)
+
+```
+
+```{r}
+
+cor_table <- select(dengue, 5:ncol(dengue)) %>%
+  cor(use = 'pairwise.complete.obs')
+
+as.data.frame(as.table(cor_table)) %>%
+  subset(abs(Freq) > 0.9 & abs(Freq) < 1)
+
+#cor_table[which(tibble(data.frame(cor_table)) > 0.8)]
+
+
+#corrplot::corrplot(cor_table)
+# ?apply
+# cor_table[table(apply(cor_table, 2, function(x) x >.5))]
+
+#apply(cor_table, 2, function(x) x >.5)
+
+
+```
+
+## Combining independent and dependent
+
+```{r}
+
+#glm.fit(dengue[,5:ncol(dengue)], response$total_cases, family = poisson())
+
+combined_data <- left_join(dengue, response)
+
+
+# check
+colSums(is.na(combined_data))
+
+summary(combined_data)
+dim(response)
+dim(dengue)
+
+```
+
+
+```{r}
+
+
+  ggplot(combined_data2, aes(x = week_start_date, y = total_cases, color = city)) +
+  geom_line()
+```
+
+# timeseries fit
+
+```{r}
+
+sj_series <- ts(combined_data2[combined_data2$city == 'sj',]$total_cases,
+                start = c(1990, 18), frequency = 52)
+decompose(sj_series) %>% 
+  autoplot()
+
+sj_arima_fit <- auto.arima(sj_series)
+sj_ets_fit <- forecast::ets(sj_series)
+
+summary(sj_fit)
+checkresiduals(sj_fit)
+
+# test forecasts, arma is p, q, P, Q, M, d, D
+
+sj_fit$arma
+cv_forecast <- function (x, h) forecast(Arima(x, order = c(1,1,1)), h = 1)
+error_vector <- tsCV(sj_series, cv_forecast, h = 1)
+```
+
+## Inspecting differences by city
+
+```{r}
+
+stacked_hist <- function(data, ind_var, factor_var, filter_dates = TRUE)
+{
+  if (filter_dates == TRUE)
+    {
+    data = filter(data, week_start_date >= '2000-01-01', week_start_date <= '2008-12-30')
+    ggplot(data, aes_string(x = ind_var)) +
+    geom_histogram(aes_string(y= "..count../sum(..count..)", fill = factor_var, color = "'black'"), bins =     60) +
+    # geom_histogram(aes_string(fill = factor_var, color = "'black'"), bins = 60) +
+    guides(color = FALSE) +
+    ylab('proportion') +
+    theme_hc()
+  }
+}
+
+stacked_hist(combined_data2, "total_cases", "city")
+
+stacked_hist(dengue, "precipitation_amt_mm", "city")
+
+stacked_hist(dengue, "station_avg_temp_c", "city")
+```
+
+Skewed right, and cases are integers so a poisson or negative binomial may be appropriate. In poisson the mean == variance, we can check that for these distributions.
+
+```{r}
+group_by(response, city) %>%
+  summarise(mean(total_cases), var(total_cases))
+
+library(fitdistrplus)
+
+filter(response, city == 'sj') %>%
+  .$total_cases %>%
+  as.numeric() %>%
+  descdist(discrete = TRUE)
+```
+
+
+## Summary stats by city
+
+```{r}
+
+group_by(response, city, year) %>%
+  summarize(sum(total_cases), mean(total_cases), n(), max(total_cases), min(total_cases))
+
+```
+
+
+
+```{r}
+# medians <- apply(combined_data, 2, function(x) median(as.numeric(x), na.rm = TRUE))
+#
+# replace_na <- function(vect, median) {
+#   ifelse(is.na(vect), median, vect)
+# }
+#
+# replace_na(c(1,2,3,NA), 2)
+#
+# for (item in medians) {
+#   if(!is.na(item)) {
+#     print(item)
+#   }
+# }
+
+
+# combined_data2 <- na.aggregate(combined_data, by = 'year', FUN = function(x) median(x, na.rm = TRUE))
+#
+# combined_data2 <- apply(combined_data2[,5:ncol(combined_data2)], 2, as.numeric) %>%
+#   as.data.frame() %>%
+#   cbind(combined_data2[,1:4], .)
+
+# separate cities, otherwise indices are not unique
+# spread(combined_data, city, total_cases) %>%
+#   zoo(., order.by = .$week_start_date) %>%
+#   na.aggregate(format, "%Y") %>%
+#   is.na() %>%
+#   colSums()
+
+filter(combined_data, city == 'iq') %>%
+  dplyr::select(week_start_date) %>% dim()
+
+```
+
+## Negative binomial glm
+
+```{r}
+
+# Baseline model for analysis, no data splitting done
+nb_1 <- glm.nb(total_cases ~ ., combined_data2)
+
+summary(nb_1)
+
+# glmnet
+
+library(glmnet)
+
+# https://web.stanford.edu/~hastie/glmnet/glmnet_alpha.html#lin for formulas
+# returns lambda value for lowest cv mse
+
+combined_data2$city <- combined_data2$city %>%
+  as.factor()
+
+cv_elas1 <- cv.glmnet(dplyr::select(combined_data2, -total_cases) %>% data.matrix(),
+                dplyr::select(combined_data2, total_cases)[,1] %>% unlist%>% as.numeric(), family = 'gaussian',
+                alpha = 1)
+
+cv_elas2 <- cv.glmnet(dplyr::select(combined_data2, -total_cases) %>% data.matrix(),
+                dplyr::select(combined_data2, total_cases)[,1] %>% unlist%>% as.numeric(), family = 'gaussian',
+                alpha = 0)
+
+summary(cv_elas1)
+
+glmnet(dplyr::select(combined_data2, -total_cases) %>% data.matrix(),
+                dplyr::select(combined_data2, total_cases)[,1] %>% unlist%>% as.numeric(), family = 'gaussian',
+                alpha = .5)
+
+sapply(combined_data, class) %>% sapply(function(x) if (x=='integer') {return(x)} else {return()} )
+
+# could have used map_if(df, condition, function)
+get_integer_cols <- function(df) {
+  for (i in 1:ncol(df)) {
+    if (is.integer(combined_data[,i])) {
+      print(colnames(combined_data)[i])
+      df[,i] <- as.numeric(df[,i])
+    }
+    else {
+      next
+    }
+  }
+  return(df)
+}
+
+combined_data <- get_integer_cols(combined_data)
+
+```
+
+## Caret
+
+```{r}
+
+library(caret)
+set.seed(42)
+
+# fills na values
+combined_data2 <- map_df(combined_data, na.locf)
+combined_data2$week_start_date <- ymd(combined_data2$week_start_date)
+combined_data2$city <- factor(combined_data2$city)
+
+# split data
+idx <- createDataPartition(combined_data2$total_cases, list = FALSE, p = .8)
+
+train_data <- combined_data2[idx,] %>% 
+  select(-total_cases)
+
+test_data <- combined_data2[-idx,] %>% 
+  select(-total_cases)
+
+train_y <- train_data$total_cases 
+test_y <- test_data$total_cases
+
+# dummy the city column here
+dummy_model <- dummyVars(total_cases~., data = train_data)
+train_data <- predict(dummy_model, newdata = train_data)
+test_data <- predict(dummy_model, newdata = test_data)
+
+# find linear combos
+remove_cols <- findLinearCombos(data.matrix(combined_data2))$remove
+combined_data2 <- combined_data2[-remove_cols]
+
+findLinearCombos(data.matrix(combined_data2))
+
+# # check features
+# featurePlot(x = train_data[,20:24],
+#             y = train_data$total_cases,
+#             plot = "pairs",
+#             strip=strip.custom(par.strip.text=list(cex=.7)),
+#             scales = list(x = list(relation="free"),
+#                           y = list(relation="free"))
+#             )
+
+
+# preprocess
+preprocess_model <- preProcess(train_data, method = c('center', 'scale'))
+train_data <- predict(preprocess_model, newdata = train_data)
+test_data <- predict(preprocess_model, newdata = test_data)
+
+# training
+glm_model <- train(x = train_data, y = train_y, method = 'glmnet', family = 'poisson')
+tree_model <- train(x = train_data, y = train_y, method = 'xgbTree')
+
+
+# validation
+predictions <- predict(glm_model, newdata = test_data)
+postResample(predictions, test_y)
+mean(abs(predictions - test_y))
+
+predictions <- predict(tree_model, newdata = test_data)
+postResample(predictions, test_y)
+mean(abs(predictions - test_y))
+
+
+```
+
+```{r}
+# reanalysis_dew_point_temp_k reanalysis_specific_humidity_g_per_kg
+coef(cv_elas2)
+coef(glm_model$finalModel, glm_model$bestTune$lambda)
+```
+
