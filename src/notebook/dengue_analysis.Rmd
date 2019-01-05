@@ -35,7 +35,16 @@ library(forecast)
 ```{r}
 response <- fread('../input/dengue_labels_train.csv')
 dengue <- fread('../input/dengue_features_train.csv')
+test <- fread('../input/dengue_features_test.csv')
+```
+
+```{r}
+
 str(dengue)
+str(test)
+
+summary(dengue$year)
+summary(test$year)
 
 ```
 
@@ -44,7 +53,13 @@ str(dengue)
 cor_table <- select(dengue, 5:ncol(dengue)) %>%
   cor(use = 'pairwise.complete.obs')
 
-corrplot::corrplot(cor_table)
+as.data.frame(as.table(cor_table)) %>%
+  subset(abs(Freq) > 0.9 & abs(Freq) < 1)
+
+#cor_table[which(tibble(data.frame(cor_table)) > 0.8)]
+
+
+#corrplot::corrplot(cor_table)
 # ?apply
 # cor_table[table(apply(cor_table, 2, function(x) x >.5))]
 
@@ -60,7 +75,6 @@ corrplot::corrplot(cor_table)
 #glm.fit(dengue[,5:ncol(dengue)], response$total_cases, family = poisson())
 
 combined_data <- left_join(dengue, response)
-combined_data2 <- map_df(combined_data, na.locf)
 
 
 # check
@@ -76,19 +90,22 @@ dim(dengue)
 ```{r}
 
 
-ggplot(combined_data2, aes(x = week_start_date, y = total_cases, color = city)) +
+  ggplot(combined_data2, aes(x = week_start_date, y = total_cases, color = city)) +
   geom_line()
 ```
 
-# ARIMA fit
+# timeseries fit
 
 ```{r}
 
 sj_series <- ts(combined_data2[combined_data2$city == 'sj',]$total_cases,
                 start = c(1990, 18), frequency = 52)
+decompose(sj_series) %>% 
+  autoplot()
 
+sj_arima_fit <- auto.arima(sj_series)
+sj_ets_fit <- forecast::ets(sj_series)
 
-sj_fit <- auto.arima(sj_series)
 summary(sj_fit)
 checkresiduals(sj_fit)
 
@@ -187,29 +204,35 @@ filter(combined_data, city == 'iq') %>%
 ## Negative binomial glm
 
 ```{r}
-#lme4::lmer(total_cases ~ 1 + (1|city) + station_precip_mm, combined_data2) %>% summary()
-# 
-# library(MASS)
-# # Baseline model for analysis, no data splitting done
-# nb_1 <- glm.nb(total_cases ~ ., combined_data2)
-# 
-# summary(nb_1)
+
+# Baseline model for analysis, no data splitting done
+nb_1 <- glm.nb(total_cases ~ ., combined_data2)
+
+summary(nb_1)
 
 # glmnet
 
 library(glmnet)
 
+# https://web.stanford.edu/~hastie/glmnet/glmnet_alpha.html#lin for formulas
 # returns lambda value for lowest cv mse
 
 combined_data2$city <- combined_data2$city %>%
   as.factor()
 
-cv_elas1 <- cv.glmnet( dplyr::select(combined_data2, -total_cases, -week_start_date ) %>% data.matrix(),
-                dplyr::select(combined_data2, total_cases)[,1] %>% unlist () %>% as.numeric(), 
-                family = 'poisson',
-                alpha = .5)
+cv_elas1 <- cv.glmnet(dplyr::select(combined_data2, -total_cases) %>% data.matrix(),
+                dplyr::select(combined_data2, total_cases)[,1] %>% unlist%>% as.numeric(), family = 'gaussian',
+                alpha = 1)
+
+cv_elas2 <- cv.glmnet(dplyr::select(combined_data2, -total_cases) %>% data.matrix(),
+                dplyr::select(combined_data2, total_cases)[,1] %>% unlist%>% as.numeric(), family = 'gaussian',
+                alpha = 0)
 
 summary(cv_elas1)
+
+glmnet(dplyr::select(combined_data2, -total_cases) %>% data.matrix(),
+                dplyr::select(combined_data2, total_cases)[,1] %>% unlist%>% as.numeric(), family = 'gaussian',
+                alpha = .5)
 
 sapply(combined_data, class) %>% sapply(function(x) if (x=='integer') {return(x)} else {return()} )
 
@@ -228,6 +251,7 @@ get_integer_cols <- function(df) {
 }
 
 combined_data <- get_integer_cols(combined_data)
+
 ```
 
 ## Caret
@@ -244,8 +268,12 @@ combined_data2$city <- factor(combined_data2$city)
 
 # split data
 idx <- createDataPartition(combined_data2$total_cases, list = FALSE, p = .8)
-train_data <- combined_data2[idx,]
-test_data <- combined_data2[-idx,]
+
+train_data <- combined_data2[idx,] %>% 
+  select(-total_cases)
+
+test_data <- combined_data2[-idx,] %>% 
+  select(-total_cases)
 
 train_y <- train_data$total_cases 
 test_y <- test_data$total_cases
@@ -254,10 +282,12 @@ test_y <- test_data$total_cases
 dummy_model <- dummyVars(total_cases~., data = train_data)
 train_data <- predict(dummy_model, newdata = train_data)
 test_data <- predict(dummy_model, newdata = test_data)
+
 # find linear combos
-#
-# remove_cols <- findLinearCombos(data.matrix(combined_data2))$remove
-# combined_data2 <- combined_data2[-remove_cols]
+remove_cols <- findLinearCombos(data.matrix(combined_data2))$remove
+combined_data2 <- combined_data2[-remove_cols]
+
+findLinearCombos(data.matrix(combined_data2))
 
 # # check features
 # featurePlot(x = train_data[,20:24],
@@ -290,3 +320,10 @@ mean(abs(predictions - test_y))
 
 
 ```
+
+```{r}
+# reanalysis_dew_point_temp_k reanalysis_specific_humidity_g_per_kg
+coef(cv_elas2)
+coef(glm_model$finalModel, glm_model$bestTune$lambda)
+```
+
