@@ -67,7 +67,6 @@ calc_mas <- function(df, col, ma1=20, ma2=50, ma3=200) {
   
 }
 
-
 # exponential, arima, theta benchmark from hyndman
 eat_ensemble <- function(y, h = ifelse(frequency(y) > 1, 2*frequency(y), 14)) {
   require(forecast)
@@ -111,7 +110,7 @@ calc_quantile <- function(dt, df, col) {
 }
 
 # create new df
-analyze_ticker <- function(df, col1, col2) {
+analyze_ticker <- function(df, col1='close', col2='log_diff') {
   
   techs = technicals(df, col1)
   print('tech')
@@ -123,7 +122,7 @@ analyze_ticker <- function(df, col1, col2) {
   print('vol calced')
   
   dates <- result$date
-  quantiles = map(dates[60:length(dates)], calc_quantile, result, 'log_diff') %>% 
+  quantiles = map(dates[60:length(dates)], calc_quantile, result, col2) %>% 
     bind_rows 
   
   return(left_join(result, quantiles) %>%
@@ -171,8 +170,7 @@ compare_runcor <- function(series1, series2, df=na.omit(combined_w), summarize =
   col_pair = paste0(colnames(dplyr::select(df, series1, series2)), 
                     collapse = '_')
   
-  
-    map_df(df, diff) %>%
+  map_df(df, diff) %>%
     {TTR::runCor(x = pull(., series1), y = pull(., series2), n=50)} %>% 
     tibble(date=df[['date']][2:dim(df)[1]], 
            col_pair, 
