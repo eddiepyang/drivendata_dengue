@@ -33,9 +33,9 @@ library(forecast)
 
 
 ```{r}
-response <- fread('../input/dengue_labels_train.csv')
-dengue <- fread('../input/dengue_features_train.csv')
-test <- fread('../input/dengue_features_test.csv')
+response <- fread('../../data/input/dengue_labels_train.csv')
+dengue <- fread('../../data/input/dengue_features_train.csv')
+test <- fread('../../data/input/dengue_features_test.csv')
 ```
 
 ```{r}
@@ -46,26 +46,68 @@ str(test)
 summary(dengue$year)
 summary(test$year)
 
+tail(dengue)
+tail(test)
 ```
+
+## Correlations check
 
 ```{r}
 
+
+combined_data <- left_join(dengue, response)
+
 cor_table <- select(dengue, 5:ncol(dengue)) %>%
-  cor(use = 'pairwise.complete.obs')
+  cor(use = 'pairwise.complete.obs') %>% 
+  as.table() %>% 
+  as_tibble
 
-as.data.frame(as.table(cor_table)) %>%
-  subset(abs(Freq) > 0.9 & abs(Freq) < 1)
+cor_table %>% 
+  filter(n ==1, Var1 != Var2)
+cor_table %>%
+  subset(abs(n) >= 0.7 & abs(n) < 1) %>%
+  slice(seq.int(1, 40, 2))
 
-#cor_table[which(tibble(data.frame(cor_table)) > 0.8)]
+head(combined_data)
+library(caret)
 
+summary(combined_data)
+combined_data$city <- factor(combined_data$city)
+select(combined_data, -c(total_cases, week_start_date)) %>%
+  map_df(na.locf) %>%
+  data.matrix() %>%
+  findLinearCombos()
+data.m(combined_data)
 
-#corrplot::corrplot(cor_table)
-# ?apply
-# cor_table[table(apply(cor_table, 2, function(x) x >.5))]
+map_df(combined_data, na.locf)
+colnames(combined_data)
+#lm_fit <- lme4::lmer(total_cases ~ 1|city, select(combined_data, -week_start_date))
+lm_fit <- lm(total_cases ~., select(combined_data, -week_start_date))
 
-#apply(cor_table, 2, function(x) x >.5)
+alias(lm_fit)
+summary(lm_fit)
 
+car::vif(lm_fit) %>% sort(decreasing=T)
+car::vif(lm_fit) %>%
+  sort(decreasing=T) %>%
+  {.[. > 4]} %>% 
+  names() -> high_vif_names
 
+?lme4
+corrplot::corrplot(select(dengue, 5:ncol(dengue)) %>%
+  cor(use = 'pairwise.complete.obs'))
+?corrplot
+
+-high_vif_names[1:4]
+select(combined_data, -c(total_cases, precipitation_amt_mm, week_start_date)) %>%
+select(-c(high_vif_names)) %>%
+  names() %>% 
+  paste0(sep=' + ', collapse='') ->res  
+  substr(res, 1, (nchar(res)-3)) -> res
+
+formula <- paste0('total_cases ~ ', res) 
+
+formula
 ```
 
 ## Combining independent and dependent
@@ -73,8 +115,6 @@ as.data.frame(as.table(cor_table)) %>%
 ```{r}
 
 #glm.fit(dengue[,5:ncol(dengue)], response$total_cases, family = poisson())
-
-combined_data <- left_join(dengue, response)
 
 
 # check
@@ -100,11 +140,17 @@ dim(dengue)
 
 sj_series <- ts(combined_data2[combined_data2$city == 'sj',]$total_cases,
                 start = c(1990, 18), frequency = 52)
+
+combined_data %>% 
+  filter(city=='sj') %>% 
+  tail()
+
 decompose(sj_series) %>% 
   autoplot()
 
-sj_arima_fit <- auto.arima(sj_series)
+sj_arima_fit <- forecast::auto.arima(sj_series)
 sj_ets_fit <- forecast::ets(sj_series)
+
 
 summary(sj_fit)
 checkresiduals(sj_fit)
@@ -125,13 +171,13 @@ stacked_hist <- function(data, ind_var, factor_var, filter_dates = TRUE)
   if (filter_dates == TRUE)
     {
     data = filter(data, week_start_date >= '2000-01-01', week_start_date <= '2008-12-30')
-    ggplot(data, aes_string(x = ind_var)) +
+  }
+  ggplot(data, aes_string(x = ind_var)) +
     geom_histogram(aes_string(y= "..count../sum(..count..)", fill = factor_var, color = "'black'"), bins =     60) +
     # geom_histogram(aes_string(fill = factor_var, color = "'black'"), bins = 60) +
     guides(color = FALSE) +
     ylab('proportion') +
     theme_hc()
-  }
 }
 
 stacked_hist(combined_data2, "total_cases", "city")
@@ -234,7 +280,8 @@ glmnet(dplyr::select(combined_data2, -total_cases) %>% data.matrix(),
                 dplyr::select(combined_data2, total_cases)[,1] %>% unlist%>% as.numeric(), family = 'gaussian',
                 alpha = .5)
 
-sapply(combined_data, class) %>% sapply(function(x) if (x=='integer') {return(x)} else {return()} )
+sapply(combined_data, class) %>% 
+  sapply(function(x) if (x=='integer') {return(x)} else {return()} )
 
 # could have used map_if(df, condition, function)
 get_integer_cols <- function(df) {
@@ -250,8 +297,8 @@ get_integer_cols <- function(df) {
   return(df)
 }
 
-combined_data <- get_integer_cols(combined_data)
 
+na.omit(combined_data)
 ```
 
 ## Caret
@@ -279,7 +326,7 @@ train_y <- train_data$total_cases
 test_y <- test_data$total_cases
 
 # dummy the city column here
-dummy_model <- dummyVars(total_cases~., data = train_data)
+dummy_model <- dummyVars(city~., data = train_data)
 train_data <- predict(dummy_model, newdata = train_data)
 test_data <- predict(dummy_model, newdata = test_data)
 

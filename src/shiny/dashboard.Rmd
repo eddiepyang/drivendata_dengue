@@ -1,0 +1,149 @@
+---
+title: "Stock Charts"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    vertical_layout: scroll
+runtime: shiny
+---
+
+<style type="text/css">
+
+.chart-title {  /* chart_title  */
+   font-size: 16px;
+</style>
+
+```{r setup, include=FALSE}
+
+library(flexdashboard)
+library(shiny)
+library(tidyquant)
+library(data.table)
+library(forecast)
+library(plotly)
+
+source('analysis_functions.R')
+
+```
+
+
+Inputs {.sidebar}
+------------------------------------------------------------------
+This dashboard presents charts for the ticker selected.
+```{r}
+
+inputPanel(
+  selectInput("symbol", label = "Symbol:",
+              choices = c('SPY', 'GLD', 'AGG', 'QQQ', 'BTC-USD'))
+)
+
+```
+
+
+
+Row
+------------------------------------------------------------------------------------------
+
+### Closing price with forecast
+
+```{r}
+
+renderPlotly({
+
+  i = which(names(combined_w) %in% input$symbol )
+  res<- na.omit(combined_w)
+  start= year(res$date)[1] + lubridate::week(res$date)[1]/52  
+  
+  res %>%
+  {pull(., i) %>%
+    ts(frequency=365.25/7, start=start) %>%
+        tbats %>% 
+    forecast(h=10) %>%
+    autoplot() +
+      scale_x_continuous(breaks=seq(2008, 2020, 2))} %>% 
+    ggplotly() %>% 
+    layout(title = '', xaxis=list(title='Year', range=c(2007.9, 2020.1)), 
+           yaxis=list(title='Price'))
+}) 
+
+```
+
+Row
+-----------------------------------------------------------------------
+### Weekly candlestick 
+
+```{r}
+# 
+# combined <- tq_get(c('SPY', 'AGG', 'GLD', 'QQQ', 'BTC-USD'))
+# write_csv(combined, 'combined_df.csv')
+
+combined <- read_csv('combined_df.csv')
+
+combined_w <- data.table::setDT(combined) %>%
+ data.table::setDT(combined) %>%
+  data.table::dcast(formula = date~symbol, 
+                    fun.aggregate = dplyr::first, 
+                    value.var='close') %>% 
+  replace_na(list('BTC-USD'=0)) %>% 
+  as.xts(order.by=date) %>% 
+  to.weekly(OHLC=F) %>%      
+  timetk::tk_tbl(rename_index='date')
+
+
+# library(tidyquant)
+# create_period(combined, to.weekly) %>% tbats %>% forecast %>% autoplot()
+
+# renderPlot({ 
+#   filter(combined, symbol==input$symbol) %>% 
+#     tail(250) %>%
+#     series_chart(title=input$symbol) 
+# }, res = 150
+# )
+
+renderPlotly({
+  combined %>% 
+    filter(symbol==input$symbol) %>%
+    select(-symbol) %>%
+    create_period(to.weekly) %>% 
+    calc_mas('close') %>%
+  plot_ly(x = ~date, type="candlestick",
+          open = ~open, close = ~close,
+          high = ~high, low = ~low) %>%
+  add_lines(x = ~date, y = ~SMA52, line = list(color = 'red', width = 1), inherit = T, text='') %>%
+  add_lines(x = ~date, y = ~SMA22, line = list(color = 'green', width = 1), inherit = T, text='') %>% 
+    layout(showlegend = FALSE, 
+           xaxis=list(range = c(date('2007-12-01'), date('2020-02-01'))), 
+           yaxis=list(title='')
+           )
+})
+
+
+
+```
+
+Row
+------------------------------------------------------------------------------------------
+
+### Run correlation between SPY and selected symbol
+
+```{r}
+
+
+renderPlotly({
+i = which(names(combined_w) %in% input$symbol )
+
+compare_runcor(6, i, df=combined_w, summarize = FALSE) %>% 
+#  replace_na(replace=list(running_cor=0)) %>%
+  {ggplot(., aes(x=date, y=running_cor)) +
+    geom_line() +
+    xlab('date') +
+    ylab('correlation') +
+    theme_minimal()} %>%
+  ggplotly()
+}) 
+# 
+# compare_runcor(6, 5, df=combined_w, summarize = FALSE) %>% 
+#   replace_na(replace=list(running_cor=0))
+```
+
+
