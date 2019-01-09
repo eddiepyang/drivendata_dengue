@@ -3,15 +3,12 @@ title: "Stock Charts"
 output: 
   flexdashboard::flex_dashboard:
     orientation: rows
+    social: menu
     vertical_layout: scroll
 runtime: shiny
 ---
 
-<style type="text/css">
 
-.chart-title {  /* chart_title  */
-   font-size: 16px;
-</style>
 
 ```{r setup, include=FALSE}
 
@@ -39,7 +36,17 @@ inputPanel(
 
 ```
 
+Row 
+-----------------------------------------------------------------------------------------
 
+### Volatility {.value-box}
+
+```{r}
+
+  valueBox(value=52, icon='fa-pencil', color='warning')
+  
+
+```
 
 Row
 ------------------------------------------------------------------------------------------
