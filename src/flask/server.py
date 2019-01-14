@@ -6,10 +6,6 @@ import pandas as pd
 from statsmodels.tsa.api import ExponentialSmoothing
 from flask_jsonpify import jsonpify
 
-
-# def transform(text_file_contents):
-#     return text_file_contents.replace("=", ",")
-
 def get_data(df):
 
     data = df[df.city=='sj'].iloc[:,1:].station_precip_mm
@@ -24,7 +20,6 @@ def get_model(data):
                          seasonal_periods=4).fit()
     return fit
 
-data = None
 model = None
 
 app = Flask(__name__)
@@ -34,34 +29,36 @@ def form():
     return """
         <html>
             <body>
-                <h1>Transform a file demo</h1>
-
-                <form action="/transform" method="post" enctype="multipart/form-data">
-                    <input type="file" name="data_file" />
-                    <input type="submit" />
-                </form>
+                <h1>Available endpoints</h1>                
+                <p>train  
+                <br>predict
             </body>
         </html>
     """
 
-@app.route('/predict', methods=["POST"])
-def predict():
+@app.route('/train', methods=["POST"])
+def train():
+    global model
     new_data = request.get_json()
-    #print(new_data.keys())
 
-   
-    # df = pd.read_csv(f)
     df = pd.DataFrame(new_data)
     #print(df.head())
     data = get_data(df).fillna(0)
-    #print(data.dtype)
+    print(data.dtype)
     model = get_model(data)
-    #print(model.summary())
-    result = model.forecast(10)
-    print(result)
-    return jsonpify(result.to_dict())
-    
-    
+    print(model)
+    return 'model completed'
+
+@app.route('/predict', methods=["POST"])
+def predict():
+    if model is not None:
+        period = request.get_json()
+        #print(model.summary())
+        result = model.forecast(period['h'])
+        print(result)
+        return jsonpify(result.to_dict())
+    else:
+        print('please run train first')    
 
 if __name__ == "__main__":
     app.run(host='127.0.0.1', port=5001, debug=True)
