@@ -1,9 +1,11 @@
-from flask import Flask, make_response, request
+from flask import Flask, request, session
+#from flask_session import Session
 import io
 import csv
 import numpy as np
 import pandas as pd
 from statsmodels.tsa.api import ExponentialSmoothing
+from statsmodels.api import load
 from flask_jsonpify import jsonpify
 
 def get_data(df):
@@ -23,6 +25,8 @@ def get_model(data):
 model = None
 
 app = Flask(__name__)
+#Session(app)
+
 
 @app.route('/')
 def form():
@@ -38,7 +42,8 @@ def form():
 
 @app.route('/train', methods=["POST"])
 def train():
-    global model
+    #global model
+    print(request.args)
     new_data = request.get_json()
 
     df = pd.DataFrame(new_data)
@@ -46,19 +51,39 @@ def train():
     data = get_data(df).fillna(0)
     print(data.dtype)
     model = get_model(data)
-    print(model)
+    model.save('fitted.pkl')
+    # session.permanent = True
+    # session['user'] = 'ok'
+    # session.modified = True
+    print(session)
     return 'model completed'
+    
 
 @app.route('/predict', methods=["POST"])
 def predict():
+
+    model = load('fitted.pkl')
+    print('session data: ', session)
+    print(request.args)
+    period = request.get_json()
+    print(period.keys())
+
     if model is not None:
-        period = request.get_json()
+
         #print(model.summary())
         result = model.forecast(period['h'])
         print(result)
         return jsonpify(result.to_dict())
     else:
-        print('please run train first')    
+        return 'please run train first'    
 
 if __name__ == "__main__":
-    app.run(host='127.0.0.1', port=5001, debug=True)
+
+    app.secret_key = 'super secret key'
+    app.config['SESSION_TYPE'] = 'filesystem'
+    #sess = Session()
+    #sess.init_app(app)
+
+    app.debug = True
+    app.run()
+    #app.run(host='127.0.0.1', port=5001, debug=True)
