@@ -1,4 +1,4 @@
-from flask import Flask, request, session
+from flask import Flask, request, session, render_template
 #from flask_session import Session
 import io
 import csv
@@ -25,20 +25,10 @@ def get_model(data):
 model = None
 
 app = Flask(__name__)
-#Session(app)
-
 
 @app.route('/')
 def form():
-    return """
-        <html>
-            <body>
-                <h1>Available endpoints</h1>                
-                <p>train  
-                <br>predict
-            </body>
-        </html>
-    """
+    return render_template('includes/main.html')
 
 @app.route('/train', methods=["POST"])
 def train():
@@ -77,13 +67,11 @@ def predict():
     else:
         return 'please run train first'    
 
+
 if __name__ == "__main__":
 
-    app.secret_key = 'super secret key'
-    app.config['SESSION_TYPE'] = 'filesystem'
-    #sess = Session()
-    #sess.init_app(app)
-
+    # app.secret_key = 'super secret key'
+    # app.config['SESSION_TYPE'] = 'filesystem'
     app.debug = True
     app.run()
-    #app.run(host='127.0.0.1', port=5001, debug=True)
+    #app.run(host='0.0.0.1', port=5001, debug=True)
