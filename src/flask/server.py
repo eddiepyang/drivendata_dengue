@@ -42,10 +42,6 @@ def train():
     print(data.dtype)
     model = get_model(data)
     model.save('fitted.pkl')
-    # session.permanent = True
-    # session['user'] = 'ok'
-    # session.modified = True
-    print(session)
     return 'model completed'
     
 
@@ -70,8 +66,6 @@ def predict():
 
 if __name__ == "__main__":
 
-    # app.secret_key = 'super secret key'
-    # app.config['SESSION_TYPE'] = 'filesystem'
     app.debug = True
     app.run()
     #app.run(host='0.0.0.1', port=5001, debug=True)
